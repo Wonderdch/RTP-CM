@@ -33,16 +33,18 @@ typing_extensions==4.5.0
 
 - Train and evaluate the model using python `main.py`.
 
-- The training and evaluation results will be stored in `results` folder.
+- The training and evaluation results will be stored in `result` folder.
 
 ```
-python train.py --dataset NYC
-                --gpu-Id 0
-                --mask-strategy Auto --make-proportion 0.1
-                --area-proportion 0.5 
-                --embed-size 60
-                --transformer-layers 2 --transformer-heads 1
+python main.py --name NYC_auto0.4
+                --run-times 1
+                --device cuda:0
+                --dataset NYC
+                --mask-strategy Auto --mask-proportion 0.4
+                --area-proportion 0.2
+                --embed-size 60 
+                --transformer-layers 1 --transformer-heads 1
                 --dropout 0.2
                 --epochs 40
-                --name exp1
+                --lr 1e-5
 ```
