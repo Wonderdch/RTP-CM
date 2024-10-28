@@ -40,7 +40,7 @@ python main.py --name NYC_auto0.4
                 --run-times 1
                 --device cuda:0
                 --dataset NYC
-                --mask-strategy Auto --mask-proportion 0.4
+                --mask-strategy 2 --mask-proportion 0.4
                 --area-proportion 0.2
                 --embed-size 60 
                 --transformer-layers 1 --transformer-heads 1
