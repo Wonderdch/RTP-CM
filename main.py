@@ -11,7 +11,7 @@ from parameter_parser import parse
 from result.data_reader import print_output_to_file, calculate_average, clear_log_meta_model
 
 
-def train_TFPRec(train_set, test_set, h_params, vocab_size, device, run_name):
+def train_RTP_CM(train_set, test_set, h_params, vocab_size, device, run_name):
     model_path = f"./result/{run_name}_model"
     log_path = f"./result/{run_name}_log"
     meta_path = f"./result/{run_name}_meta"
@@ -64,7 +64,7 @@ def train_TFPRec(train_set, test_set, h_params, vocab_size, device, run_name):
             optimizer.step()
 
         # Test
-        recall, ndcg, map = test_TFPRec(test_set, model)
+        recall, ndcg, map = test_RTP_CM(test_set, model)
         recalls[i] = recall
         ndcgs[i] = ndcg
         maps[i] = map
@@ -90,7 +90,7 @@ def train_TFPRec(train_set, test_set, h_params, vocab_size, device, run_name):
     print("============================")
 
 
-def test_TFPRec(test_set, rec_model, ks=[1, 5, 10]):
+def test_RTP_CM(test_set, rec_model, ks=[1, 5, 10]):
     def calc_hit_rate(labels, preds, k):
         hit = []
         i = 0
@@ -204,7 +204,7 @@ if __name__ == '__main__':
         run_name = f'{args.name} {run_num}'
         print(run_name)
 
-        train_TFPRec(train_set, valid_set, parameters, vocab_size, device, run_name=run_name)
+        train_RTP_CM(train_set, valid_set, parameters, vocab_size, device, run_name=run_name)
         print_output_to_file(args.name, run_num, args.epochs)
 
         t = random.randint(1, 9)
