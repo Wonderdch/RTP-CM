@@ -1,3 +1,4 @@
+import os
 import pickle
 import random
 import time
@@ -18,9 +19,16 @@ def train_RTP_CM(train_set, test_set, h_params, vocab_size, device, run_name):
 
     print("parameters:", h_params)
 
-    log_file = open(log_path, 'wb')
-    pickle.dump(h_params, log_file)
-    log_file.close()
+    if os.path.isfile(f'./results/{run_name}_model'):
+        try:
+            os.remove(f"./results/{run_name}_meta")
+            os.remove(f"./results/{run_name}_model")
+            os.remove(f"./results/{run_name}_log")
+        except OSError:
+            pass
+    file = open(log_path, 'wb')
+    pickle.dump(h_params, file)
+    file.close()
 
     # Construct model
     model = RTP_CM(
@@ -164,8 +172,7 @@ if __name__ == '__main__':
         'dropout': args.dropout,
         'epochs': args.epochs,
         'lr': args.lr,
-        'expansion': 4,
-        'loss_delta': 1e-3}
+        'expansion': 4}
 
     # Adjust specific parameters for each city
     if args.dataset == 'PHO':

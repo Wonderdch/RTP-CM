@@ -7,7 +7,7 @@ class CheckInEmbedding(nn.Module):
     def __init__(self, f_embed_size, vocab_size):
         super().__init__()
         self.embed_size = f_embed_size
-        # get vocab size for each feature
+        # Get vocab size for each feature
         poi_num = vocab_size["POI"]
         cat_num = vocab_size["cat"]
         user_num = vocab_size["user"]
@@ -134,11 +134,11 @@ class Encoder(nn.Module):
 class Attention(nn.Module):
     def __init__(
             self,
-            qdim,
-            kdim,
+            q_dim,
+            k_dim,
     ):
         super().__init__()
-        self.expansion = nn.Linear(qdim, kdim)
+        self.expansion = nn.Linear(q_dim, k_dim)
 
     def forward(self, query, key, value):
         q = self.expansion(query)
@@ -191,7 +191,7 @@ class RTP_CM(nn.Module):
             forward_expansion=2,
             dropout_proportion=0.1,
             back_step=2,  # future step
-            mask_strategy=Mask.Auto,
+            mask_strategy=Mask.Simple,
             mask_proportion=0.4,
             device='cuda:0',
     ):
@@ -215,7 +215,7 @@ class RTP_CM(nn.Module):
             nn.Softmax(dim=0)
         )
 
-        # Area aux
+        # Area auxiliary tasks
         self.area_proportion = area_proportion
         self.area_lengths = area_code_embed_size
 
@@ -232,6 +232,7 @@ class RTP_CM(nn.Module):
         self.area_3_dense = nn.Linear(2 * self.total_embed_size, area_code_embed_size['3'])
         self.area_4_dense = nn.Linear(2 * self.total_embed_size, area_code_embed_size['4'])
 
+        # Long, short encoders
         self.embedding = CheckInEmbedding(
             feature_embed_size,
             vocab_size
@@ -262,17 +263,17 @@ class RTP_CM(nn.Module):
             )
 
         self.intra_seq_attention = Attention(
-            qdim=feature_embed_size,
-            kdim=self.total_embed_size
+            q_dim=feature_embed_size,
+            k_dim=self.total_embed_size
         )
 
         self.inter_seq_attention = Attention(
-            qdim=feature_embed_size,
-            kdim=self.total_embed_size
+            q_dim=feature_embed_size,
+            k_dim=self.total_embed_size
         )
         self.final_attention = Attention(
-            qdim=feature_embed_size,
-            kdim=self.total_embed_size
+            q_dim=feature_embed_size,
+            k_dim=self.total_embed_size
         )
 
         self.out_linear = nn.Sequential(nn.Linear(self.total_embed_size, self.total_embed_size * forward_expansion),
@@ -424,14 +425,24 @@ class RTP_CM(nn.Module):
         elif self.mask_strategy == Mask.Auto:
             long_term_length = sum([len(seq[0]) for seq in long_term_sequences])
             long_term_days = len(long_term_sequences)
-
             mlp_output = self.mask_strategy_mlp(
                 torch.cuda.FloatTensor([long_term_length, long_term_days], device=self.device))
             selected_strategy = torch.argmax(mlp_output).item()
-
             if selected_strategy == 0:
                 long_term_sequences = self.simple_mask(long_term_sequences, self.mask_proportion)
             elif selected_strategy == 1:
+                long_term_sequences = self.living_mask(long_term_sequences)
+        elif self.mask_strategy == Mask.AutoTrainable:
+            long_term_length = sum([len(seq[0]) for seq in long_term_sequences])
+            long_term_days = len(long_term_sequences)
+            strategy_probs = self.mask_strategy_mlp(
+                torch.cuda.FloatTensor([long_term_length, long_term_days], device=self.device))
+            strategy_dist = torch.distributions.Categorical(strategy_probs)
+            selected_strategy = strategy_dist.sample()
+            strategy_log_prob = strategy_dist.log_prob(selected_strategy)
+            if selected_strategy.item() == 0:
+                long_term_sequences = self.simple_mask(long_term_sequences)
+            else:
                 long_term_sequences = self.living_mask(long_term_sequences)
         elif self.mask_strategy == Mask.Prediction:
             mask_index, long_term_sequences, masked_targets = self.prediction_mask(long_term_sequences)
@@ -463,42 +474,45 @@ class RTP_CM(nn.Module):
         loss = self.loss_func(pred, label)
 
         # Area auxiliary task
-        short_term_hidden_state = self.area_dropout(short_term[-1])
+        if self.area_proportion > 0:
+            short_term_hidden_state = self.area_dropout(short_term[-1])
 
-        area_0 = short_term_sequence[1][0, -self.back_step - 2]
-        area_1 = short_term_sequence[1][1, -self.back_step - 2]
-        area_2 = short_term_sequence[1][2, -self.back_step - 2]
-        area_3 = short_term_sequence[1][3, -self.back_step - 2]
-        area_4 = short_term_sequence[1][4, -self.back_step - 2]
+            area_0 = short_term_sequence[1][0, -self.back_step - 2]
+            area_1 = short_term_sequence[1][1, -self.back_step - 2]
+            area_2 = short_term_sequence[1][2, -self.back_step - 2]
+            area_3 = short_term_sequence[1][3, -self.back_step - 2]
+            area_4 = short_term_sequence[1][4, -self.back_step - 2]
 
-        area_0_embed = self.area_dropout(self.area_0_embedding(area_0))
-        area_1_embed = self.area_dropout(self.area_1_embedding(area_1))
-        area_2_embed = self.area_dropout(self.area_2_embedding(area_2))
-        area_3_embed = self.area_dropout(self.area_3_embedding(area_3))
-        area_4_embed = self.area_dropout(self.area_4_embedding(area_4))
+            area_0_embed = self.area_dropout(self.area_0_embedding(area_0))
+            area_1_embed = self.area_dropout(self.area_1_embedding(area_1))
+            area_2_embed = self.area_dropout(self.area_2_embedding(area_2))
+            area_3_embed = self.area_dropout(self.area_3_embedding(area_3))
+            area_4_embed = self.area_dropout(self.area_4_embedding(area_4))
 
-        area_0_target = short_term_sequence[1][0, -self.back_step - 1]
-        area_1_target = short_term_sequence[1][1, -self.back_step - 1]
-        area_2_target = short_term_sequence[1][2, -self.back_step - 1]
-        area_3_target = short_term_sequence[1][3, -self.back_step - 1]
-        area_4_target = short_term_sequence[1][4, -self.back_step - 1]
+            area_0_target = short_term_sequence[1][0, -self.back_step - 1]
+            area_1_target = short_term_sequence[1][1, -self.back_step - 1]
+            area_2_target = short_term_sequence[1][2, -self.back_step - 1]
+            area_3_target = short_term_sequence[1][3, -self.back_step - 1]
+            area_4_target = short_term_sequence[1][4, -self.back_step - 1]
 
-        area_0_logits = self.area_0_dense(torch.cat((short_term_hidden_state, area_0_embed), dim=0))
-        area_1_logits = self.area_1_dense(torch.cat((short_term_hidden_state, area_1_embed), dim=0))
-        area_2_logits = self.area_2_dense(torch.cat((short_term_hidden_state, area_2_embed), dim=0))
-        area_3_logits = self.area_3_dense(torch.cat((short_term_hidden_state, area_3_embed), dim=0))
-        area_4_logits = self.area_4_dense(torch.cat((short_term_hidden_state, area_4_embed), dim=0))
+            area_0_logits = self.area_0_dense(torch.cat((short_term_hidden_state, area_0_embed), dim=0))
+            area_1_logits = self.area_1_dense(torch.cat((short_term_hidden_state, area_1_embed), dim=0))
+            area_2_logits = self.area_2_dense(torch.cat((short_term_hidden_state, area_2_embed), dim=0))
+            area_3_logits = self.area_3_dense(torch.cat((short_term_hidden_state, area_3_embed), dim=0))
+            area_4_logits = self.area_4_dense(torch.cat((short_term_hidden_state, area_4_embed), dim=0))
 
-        area_0_loss = self.loss_func(torch.unsqueeze(area_0_logits, 0), torch.unsqueeze(area_0_target, 0))
-        area_1_loss = self.loss_func(torch.unsqueeze(area_1_logits, 0), torch.unsqueeze(area_1_target, 0))
-        area_2_loss = self.loss_func(torch.unsqueeze(area_2_logits, 0), torch.unsqueeze(area_2_target, 0))
-        area_3_loss = self.loss_func(torch.unsqueeze(area_3_logits, 0), torch.unsqueeze(area_3_target, 0))
-        area_4_loss = self.loss_func(torch.unsqueeze(area_4_logits, 0), torch.unsqueeze(area_4_target, 0))
+            area_0_loss = self.loss_func(torch.unsqueeze(area_0_logits, 0), torch.unsqueeze(area_0_target, 0))
+            area_1_loss = self.loss_func(torch.unsqueeze(area_1_logits, 0), torch.unsqueeze(area_1_target, 0))
+            area_2_loss = self.loss_func(torch.unsqueeze(area_2_logits, 0), torch.unsqueeze(area_2_target, 0))
+            area_3_loss = self.loss_func(torch.unsqueeze(area_3_logits, 0), torch.unsqueeze(area_3_target, 0))
+            area_4_loss = self.loss_func(torch.unsqueeze(area_4_logits, 0), torch.unsqueeze(area_4_target, 0))
 
-        final_loss = (1 - self.area_proportion) * loss + self.area_proportion * self.area_lengths['0'] * (
-                area_0_loss / self.area_lengths['0'] + area_1_loss / self.area_lengths['1'] +
-                area_2_loss / self.area_lengths['2'] + area_3_loss / self.area_lengths['3'] +
-                area_4_loss / self.area_lengths['4'])
+            final_loss = (1 - self.area_proportion) * loss + self.area_proportion * self.area_lengths['0'] * (
+                    area_0_loss / self.area_lengths['0'] + area_1_loss / self.area_lengths['1'] +
+                    area_2_loss / self.area_lengths['2'] + area_3_loss / self.area_lengths['3'] +
+                    area_4_loss / self.area_lengths['4'])
+        else:
+            final_loss = loss
 
         if self.mask_strategy == Mask.Prediction:
             aux_hidden = []
@@ -506,8 +520,21 @@ class RTP_CM(nn.Module):
                 aux_hidden.append(long_term_out[seq_index][seq_mask_id])
             aux_hidden = torch.squeeze(torch.cat(aux_hidden, dim=0))
             mask_prediction_loss = self.aux_loss(aux_hidden, masked_targets)
-
             final_loss += mask_prediction_loss
+        elif self.mask_strategy == Mask.AutoTrainable:
+            pred_probs = torch.softmax(pred, dim=1)
+            pred_confidence = pred_probs[0][target]
+            sorted_probs, _ = torch.sort(pred_probs[0], descending=True)
+            top_n = 50
+            threshold = sorted_probs[min(top_n, len(sorted_probs) - 1)]
+            reward = (pred_confidence - threshold) / threshold
+            reward = torch.clamp(reward, min=-1.0, max=1.0)
+            reward = reward.detach()
+            strategy_weight = 0.1
+            strategy_loss = strategy_weight * strategy_log_prob * reward
+            final_loss += strategy_loss
+        else:
+            pass
 
         return final_loss, output
 
