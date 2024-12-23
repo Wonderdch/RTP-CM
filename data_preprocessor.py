@@ -252,7 +252,6 @@ def generate_dist_matrix_sequences(input_data, visit_sequence_dict):
     """generate distance matrix for sequences
         e.g., for a sequence [1,2,3], the dist matrix sequences would be:
             [[d11, d12, d13], [d21, d22, d23], [d31, d32, d33]]
-            TODO: in model: normalize distance to limit its influence 倒数或固定比例缩放
 
     Args:
         input_data (DataFrame): raw check-in data
@@ -571,18 +570,18 @@ def generate_poi_to_location(city_code, poi_mapping, input_data):
 
 def generate_h3_area_mapping():
     """
-        生成 POI ID 到 area index 的索引表
+        Generate the index table of POI ID to area index
     """
     df = pd.read_csv(f"./raw_data/{city}_poi_mapping.csv")
 
     df["token_5"] = df.apply(lambda row: h3.latlng_to_cell(row["latitude"], row["longitude"], 5), axis=1)
-    # 获取 h3_5 列的数据并进行去重和排序
+    # Get the data in the h3_5 column and remove duplicates and sort
     token_5_values = df["token_5"].unique()
     token_5_values.sort()
-    # 生成序号
+    # Generate serial number
     index_5 = list(range(len(token_5_values)))
     index_5_dict = dict(zip(token_5_values, index_5))
-    # 将序号插入到新的 index_5 列中
+
     df['index_5'] = df['token_5'].map(index_5_dict)
 
     df["token_6"] = df.apply(lambda row: h3.latlng_to_cell(row["latitude"], row["longitude"], 6), axis=1)
@@ -620,7 +619,6 @@ def generate_h3_area_mapping():
     index_10_dict = dict(zip(token_10_values, index_10))
     df['index_10'] = df['token_10'].map(index_10_dict)
 
-    # 写入 csv 文件
     df.to_csv(f"./raw_data/{city}_h3_area_mapping.csv", index=False)
     print(f"Created {city}_h3_area_mapping.csv")
 
@@ -769,7 +767,7 @@ def generate_data(city):
     poi_sequences = np.load(f'./processed_data/{city}_poi_sequences.npy', allow_pickle=True)
     poi_mapping = np.load(f'./processed_data/{city}_poi_mapping.npy', allow_pickle=True)
 
-    # 导出 POI ID 的经纬度
+    # Export POI ID latitude and longitude
     # poi_location = generate_poi_to_location(city_code, poi_mapping, data)
     # print("poi mapping csv generated.")
 
@@ -857,8 +855,8 @@ def generate_data(city):
 
 if __name__ == '__main__':
     # city_list = ['PHO', 'NYC', 'SIN']
-    city_list = ['SIN']
+    city_list = ['PHO']
     # generate_h3_area_mapping()
 
     for city in city_list:
-        generate_data(city)  # Wonder：areaGeohash -distMatrix -经纬度
+        generate_data(city)
